@@ -1,659 +1,827 @@
 
-import os
 import ply.lex as lex
 import ply.yacc as yacc
+import os
 
 
 # ============================================================
-# 1. ANALISIS LEXICO CON PLY
+# ANALIZADOR LÉXICO
 # ============================================================
+tokens = (
+    'ENTERO',
+    'VARIABLE',
+    'MAS',
+    'MENOS',
+    'POR',
+    'DIV',
+    'POTENCIA',
+    'IGUAL',
+    'PARIZQ',
+    'PARDER',
 
-reserved = {
-    "def": "DEF",
-    "if": "IF",
-    "elif": "ELIF",
-    "return": "RETURN",
-    "print": "PRINT",
-    "or": "OR",
-    "and": "AND",
-    "not": "NOT",
+    # Tokens agregados para factorial.py
+    'DEF',
+    'IF',
+    'ELIF',
+    'RETURN',
+    'OR',
+    'MAYOR',
+    'IGUALDAD',
+    'DOS_PUNTOS',
+    'COMA',
+    'NEWLINE',
+    'INDENT',
+    'DEDENT',
+)
+
+reservadas = {
+    'def': 'DEF',
+    'if': 'IF',
+    'elif': 'ELIF',
+    'return': 'RETURN',
+    'or': 'OR',
 }
 
-tokens = [
-    "NAME", "NUMBER",
-    "PLUS", "MINUS", "TIMES", "DIVIDE",
-    "EQUALS", "EQ", "NE", "GT", "LT", "GE", "LE",
-    "LPAREN", "RPAREN", "COLON", "COMMA",
-] + list(reserved.values())
+t_MAS = r'\+'
+t_MENOS = r'-'
+t_POR = r'\*'
+t_DIV = r'/'
+t_POTENCIA = r'\^'
+t_IGUALDAD = r'=='
+t_IGUAL = r'='
+t_MAYOR = r'>'
+t_PARIZQ = r'\('
+t_PARDER = r'\)'
+t_DOS_PUNTOS = r':'
+t_COMA = r','
 
-# Los operadores mas largos deben reconocerse antes que los cortos.
-t_GE = r">="
-t_LE = r"<="
-t_EQ = r"=="
-t_NE = r"!="
-t_PLUS = r"\+"
-t_MINUS = r"-"
-t_TIMES = r"\*"
-t_DIVIDE = r"/"
-t_EQUALS = r"="
-t_GT = r">"
-t_LT = r"<"
-t_LPAREN = r"\("
-t_RPAREN = r"\)"
-t_COLON = r":"
-t_COMMA = r","
-
-# Para esta practica se ignoran espacios, tabuladores y saltos
-# de linea. La gramatica controla el orden de las instrucciones.
-t_ignore = " \t\r\n"
+t_ignore = ' \t'
 
 
-def t_COMMENT(t):
-    r"\#[^\n]*"
-    pass
-
-
-def t_NUMBER(t):
-    r"\d+"
+def t_ENTERO(t):
+    r'\d+'
     t.value = int(t.value)
     return t
 
 
-def t_NAME(t):
-    r"[a-zA-Z_][a-zA-Z_0-9]*"
-    t.type = reserved.get(t.value, "NAME")
+def t_VARIABLE(t):
+    r'[A-Za-z_][A-Za-z_0-9]*'
+    t.type = reservadas.get(t.value, 'VARIABLE')
     return t
 
 
+def t_newline(t):
+    r'\n+'
+    t.lexer.lineno += len(t.value)
+
+
 def t_error(t):
-    raise SyntaxError(
-        f"Caracter no reconocido: {t.value[0]!r}"
-    )
+    print(f"Carácter ilegal: '{t.value[0]}'")
+    t.lexer.skip(1)
 
 
 lexer = lex.lex()
 
 
 # ============================================================
-# 2. GRAMATICA DE EXPRESIONES
+# INDENTACIÓN
+# ============================================================
+
+class LexerIndentacion:
+    def __init__(self, lexer_base):
+        self.lexer_base = lexer_base
+        self.lineas = []
+        self.indentaciones = [0]
+        self.cola = []
+        self.posicion = 0
+        self.fin = False
+        self.numero_linea = 0
+
+    def input(self, texto):
+        self.lineas = texto.splitlines()
+        self.indentaciones = [0]
+        self.cola = []
+        self.posicion = 0
+        self.fin = False
+        self.numero_linea = 0
+
+    def token(self):
+        while not self.cola:
+
+            if self.fin:
+                return None
+
+            if self.posicion >= len(self.lineas):
+                while len(self.indentaciones) > 1:
+                    self.indentaciones.pop()
+
+                    token = lex.LexToken()
+                    token.type = 'DEDENT'
+                    token.value = ''
+                    token.lineno = self.numero_linea + 1
+                    token.lexpos = 0
+                    self.cola.append(token)
+
+                self.fin = True
+
+                if not self.cola:
+                    return None
+
+                break
+
+            linea = self.lineas[self.posicion]
+            self.posicion += 1
+            self.numero_linea += 1
+
+            if not linea.strip():
+                continue
+
+            espacios = len(linea) - len(linea.lstrip(' '))
+            contenido = linea.lstrip(' ')
+
+            # Reconocer INDENT y DEDENT
+            if espacios > self.indentaciones[-1]:
+                self.indentaciones.append(espacios)
+
+                token = lex.LexToken()
+                token.type = 'INDENT'
+                token.value = ''
+                token.lineno = self.numero_linea
+                token.lexpos = 0
+                self.cola.append(token)
+
+            elif espacios < self.indentaciones[-1]:
+                while (
+                    len(self.indentaciones) > 1
+                    and espacios < self.indentaciones[-1]
+                ):
+                    self.indentaciones.pop()
+
+                    token = lex.LexToken()
+                    token.type = 'DEDENT'
+                    token.value = ''
+                    token.lineno = self.numero_linea
+                    token.lexpos = 0
+                    self.cola.append(token)
+
+                if espacios != self.indentaciones[-1]:
+                    raise SyntaxError(
+                        f"Indentación inválida en línea "
+                        f"{self.numero_linea}"
+                    )
+
+            # Tokenizar el contenido de la línea mediante PLY
+            self.lexer_base.lineno = self.numero_linea
+            self.lexer_base.input(contenido)
+
+            while True:
+                token = self.lexer_base.token()
+
+                if token is None:
+                    break
+
+                token.lineno = self.numero_linea
+                self.cola.append(token)
+
+            # Generar NEWLINE para cada línea no vacía
+            token = lex.LexToken()
+            token.type = 'NEWLINE'
+            token.value = '\n'
+            token.lineno = self.numero_linea
+            token.lexpos = len(linea)
+            self.cola.append(token)
+
+        return self.cola.pop(0)
+
+
+# ============================================================
+# ANALIZADOR SINTÁCTICO
 # ============================================================
 
 precedence = (
-    ("left", "OR"),
-    ("left", "AND"),
-    ("left", "EQ", "NE", "GT", "LT", "GE", "LE"),
-    ("left", "PLUS", "MINUS"),
-    ("left", "TIMES", "DIVIDE"),
-    ("right", "NOT", "UMINUS"),
+    ('left', 'OR'),
+    ('left', 'IGUALDAD', 'MAYOR'),
+    ('left', 'MAS', 'MENOS'),
+    ('left', 'POR', 'DIV'),
+    ('right', 'POTENCIA'),
+    ('right', 'UMINUS'),
 )
 
 
-def p_expresion_binaria(p):
-    """expresion : expresion PLUS expresion
-                 | expresion MINUS expresion
-                 | expresion TIMES expresion
-                 | expresion DIVIDE expresion
-                 | expresion EQ expresion
-                 | expresion NE expresion
-                 | expresion GT expresion
-                 | expresion LT expresion
-                 | expresion GE expresion
-                 | expresion LE expresion
-                 | expresion OR expresion
-                 | expresion AND expresion"""
-    p[0] = ("op", p[2], p[1], p[3])
+# NODO DEL ÁRBOL
+class NodoExpresion:
+    def __init__(self, tipo, valor=None, izq=None, der=None):
+        self.tipo = tipo
+        self.valor = valor
+        self.izq = izq
+        self.der = der
 
 
-def p_expresion_not(p):
-    "expresion : NOT expresion"
-    p[0] = ("op", "not", p[2], None)
+# Nodos adicionales para factorial.py
+class NodoFuncion:
+    def __init__(self, nombre, parametros, cuerpo):
+        self.nombre = nombre
+        self.parametros = parametros
+        self.cuerpo = cuerpo
 
 
-def p_expresion_menos_unario(p):
-    "expresion : MINUS expresion %prec UMINUS"
-    p[0] = ("op", "u-", p[2], None)
+class NodoIf:
+    def __init__(self, condicion, cuerpo, alternativo=None):
+        self.condicion = condicion
+        self.cuerpo = cuerpo
+        self.alternativo = alternativo
 
 
-def p_expresion_parentesis(p):
-    "expresion : LPAREN expresion RPAREN"
-    p[0] = p[2]
+class NodoReturn:
+    def __init__(self, expresion):
+        self.expresion = expresion
 
 
-def p_expresion_numero(p):
-    "expresion : NUMBER"
-    p[0] = ("num", p[1])
+class NodoLlamada:
+    def __init__(self, nombre, argumentos):
+        self.nombre = nombre
+        self.argumentos = argumentos
 
 
-def p_expresion_nombre(p):
-    "expresion : NAME"
-    p[0] = ("id", p[1])
+class NodoPrint:
+    def __init__(self, expresion):
+        self.expresion = expresion
 
 
-def p_expresion_llamada(p):
-    "expresion : NAME LPAREN argumentos_opt RPAREN"
-    p[0] = ("call", p[1], p[3])
+class NodoPrograma:
+    def __init__(self, sentencias):
+        self.sentencias = sentencias
 
 
-def p_argumentos_opt(p):
-    """argumentos_opt : argumentos
-                      | empty"""
-    p[0] = p[1]
+# GRAMÁTICA
+
+# GRAMÁTICA
+
+def p_programa(p):
+    'programa : lista_sentencias'
+    p[0] = NodoPrograma(p[1])
 
 
-def p_argumentos_uno(p):
-    "argumentos : expresion"
+def p_lista_sentencias_unica(p):
+    'lista_sentencias : sentencia'
     p[0] = [p[1]]
 
 
-def p_argumentos_varios(p):
-    "argumentos : argumentos COMMA expresion"
+def p_lista_sentencias_multiple(p):
+    'lista_sentencias : lista_sentencias sentencia'
+    p[0] = p[1] + [p[2]]
+
+
+def p_sentencia_instruccion(p):
+    'sentencia : instruccion NEWLINE'
+    p[0] = p[1]
+
+
+def p_sentencia_funcion(p):
+    'sentencia : funcion'
+    p[0] = p[1]
+
+
+def p_sentencia_if(p):
+    'sentencia : sentencia_if'
+    p[0] = p[1]
+
+
+def p_sentencia_return(p):
+    'sentencia : RETURN expresion NEWLINE'
+    p[0] = NodoReturn(p[2])
+
+
+def p_funcion(p):
+    'funcion : DEF VARIABLE PARIZQ parametros PARDER DOS_PUNTOS NEWLINE INDENT lista_sentencias DEDENT'
+    p[0] = NodoFuncion(p[2], p[4], p[9])
+
+
+def p_parametros_vacios(p):
+    'parametros : empty'
+    p[0] = []
+
+
+def p_parametros_uno(p):
+    'parametros : VARIABLE'
+    p[0] = [p[1]]
+
+
+def p_parametros_multiple(p):
+    'parametros : parametros COMA VARIABLE'
+    p[0] = p[1] + [p[3]]
+
+
+def p_sentencia_if_regla(p):
+    'sentencia_if : IF expresion DOS_PUNTOS NEWLINE INDENT lista_sentencias DEDENT elif_lista'
+    p[0] = NodoIf(p[2], p[6], p[8])
+
+
+def p_elif_lista_vacia(p):
+    'elif_lista : empty'
+    p[0] = None
+
+
+def p_elif_lista(p):
+    'elif_lista : ELIF expresion DOS_PUNTOS NEWLINE INDENT lista_sentencias DEDENT elif_lista'
+    p[0] = NodoIf(p[2], p[6], p[8])
+
+
+def p_instruccion_asignacion(p):
+    'instruccion : VARIABLE IGUAL expresion'
+    p[0] = NodoExpresion(
+        'asignacion',
+        valor=p[1],
+        der=p[3]
+    )
+
+
+def p_instruccion_expresion(p):
+    'instruccion : expresion'
+    if isinstance(p[1], NodoLlamada) and p[1].nombre == 'print':
+        p[0] = NodoPrint(p[1].argumentos[0])
+    else:
+        p[0] = p[1]
+
+
+def p_expresion_binaria(p):
+    '''expresion : expresion MAS expresion
+                 | expresion MENOS expresion
+                 | expresion POR expresion
+                 | expresion DIV expresion
+                 | expresion POTENCIA expresion
+                 | expresion IGUALDAD expresion
+                 | expresion MAYOR expresion
+                 | expresion OR expresion'''
+
+    operadores = {
+        'MAS': '+',
+        'MENOS': '-',
+        'POR': '*',
+        'DIV': '/',
+        'POTENCIA': '^',
+        'IGUALDAD': '==',
+        'MAYOR': '>',
+        'OR': 'or',
+    }
+
+    operador = operadores[p.slice[2].type]
+
+    p[0] = NodoExpresion(
+        operador,
+        izq=p[1],
+        der=p[3]
+    )
+
+
+def p_expresion_unaria(p):
+    'expresion : MENOS expresion %prec UMINUS'
+    p[0] = NodoExpresion('uminus', der=p[2])
+
+
+def p_expresion_parentesis(p):
+    'expresion : PARIZQ expresion PARDER'
+    p[0] = p[2]
+
+
+def p_expresion_entero(p):
+    'expresion : ENTERO'
+    p[0] = NodoExpresion('num', valor=p[1])
+
+
+def p_expresion_variable(p):
+    'expresion : VARIABLE'
+    p[0] = NodoExpresion('var', valor=p[1])
+
+
+def p_expresion_llamada(p):
+    'expresion : VARIABLE PARIZQ argumentos_llamada PARDER'
+    p[0] = NodoLlamada(p[1], p[3])
+
+
+def p_argumentos_llamada_vacios(p):
+    'argumentos_llamada : empty'
+    p[0] = []
+
+
+def p_argumentos_llamada_uno(p):
+    'argumentos_llamada : expresion'
+    p[0] = [p[1]]
+
+
+def p_argumentos_llamada_multiple(p):
+    'argumentos_llamada : argumentos_llamada COMA expresion'
     p[0] = p[1] + [p[3]]
 
 
 def p_empty(p):
-    "empty :"
-    p[0] = []
-
-
-# ============================================================
-# 3. GRAMATICA DEL PROGRAMA FACTORIAL
-# ============================================================
-
-
-def p_programa(p):
-    """programa : DEF NAME LPAREN NAME RPAREN COLON IF expresion COLON NAME EQUALS expresion ELIF expresion COLON NAME EQUALS expresion RETURN expresion NAME EQUALS NAME LPAREN NUMBER RPAREN PRINT LPAREN NAME RPAREN"""
-
-    p[0] = {
-        "funcion": p[2],
-        "parametro": p[4],
-        "condicion_if": p[8],
-        "asignacion_if": (p[10], p[12]),
-        "condicion_elif": p[14],
-        "asignacion_elif": (p[16], p[18]),
-        "retorno": p[20],
-        "variable_final": p[21],
-        "funcion_llamada": p[23],
-        "argumento_final": p[25],
-        "variable_print": p[29],
-    }
-
+    'empty :'
+    p[0] = None
 
 
 def p_error(p):
     if p:
-        raise SyntaxError(
-            f"Error sintactico cerca de {p.value!r}"
+        print(
+            f"Error sintáctico cerca de '{p.value}' "
+            f"en la línea {p.lineno}"
         )
-    raise SyntaxError("Fin inesperado de la entrada")
+    else:
+        print("Error sintáctico: fin de entrada inesperado")
 
 
-# Los dos parsers utilizan las mismas reglas PLY, pero distintos
-# simbolos iniciales.
-parser_expresiones = yacc.yacc(
-    start="expresion",
-    debug=False,
-    write_tables=False,
-)
 
+# Parser para expresiones y parser para el archivo
+parser = yacc.yacc(start='instruccion', debug=False)
 parser_factorial = yacc.yacc(
-    start="programa",
+    start='programa',
     debug=False,
-    write_tables=False,
+    tabmodule='parsetab_factorial'
 )
 
 
-def analizar_expresion(texto):
-    return parser_expresiones.parse(
-        texto, lexer=lexer, tracking=True
-    )
+# ============================================================
+# POLACA INVERSA
+# ============================================================
 
+def generar_polaca_inversa(nodo):
+    resultado = []
 
-def analizar_factorial(texto):
-    return parser_factorial.parse(
-        texto, lexer=lexer, tracking=True
-    )
+    def recorrer(n):
+        if n.tipo == 'num':
+            resultado.append(str(n.valor))
+        elif n.tipo == 'var':
+            resultado.append(n.valor)
+        elif n.tipo == 'uminus':
+            recorrer(n.der)
+            resultado.append('UMINUS')
+        elif n.tipo == 'asignacion':
+            recorrer(n.der)
+            resultado.append(n.valor)
+            resultado.append('=')
+        else:
+            recorrer(n.izq)
+            recorrer(n.der)
+            resultado.append(n.tipo)
+
+    recorrer(nodo)
+    return resultado
 
 
 # ============================================================
-# 4. REPRESENTACIONES DE EXPRESIONES
+# TRES DIRECCIONES
 # ============================================================
 
-def a_texto(nodo):
-    tipo = nodo[0]
+def generar_tres_direcciones(nodo):
+    instrucciones = []
+    contador = 0
 
-    if tipo == "num":
-        return str(nodo[1])
+    def nuevo_temporal():
+        nonlocal contador
+        contador += 1
+        return f"T{contador}"
 
-    if tipo == "id":
-        return nodo[1]
-
-    if tipo == "call":
-        args = ", ".join(a_texto(x) for x in nodo[2])
-        return f"{nodo[1]}({args})"
-
-    if tipo == "op":
-        operador, izquierda, derecha = nodo[1:]
-
-        if operador == "not":
-            return f"not {a_texto(izquierda)}"
-
-        if operador == "u-":
-            return f"-{a_texto(izquierda)}"
-
-        return (
-            f"({a_texto(izquierda)} "
-            f"{operador} {a_texto(derecha)})"
-        )
-
-    raise ValueError(f"Nodo desconocido: {nodo}")
-
-
-def polaca(nodo):
-    tipo = nodo[0]
-
-    if tipo in ("num", "id"):
-        return [str(nodo[1])]
-
-    if tipo == "call":
-        salida = []
-        for argumento in nodo[2]:
-            salida.extend(polaca(argumento))
-        salida.append(f"CALL {nodo[1]}")
-        return salida
-
-    if tipo == "op":
-        operador, izquierda, derecha = nodo[1:]
-
-        if operador in ("not", "u-"):
-            return polaca(izquierda) + [operador]
-
-        return (
-            polaca(izquierda)
-            + polaca(derecha)
-            + [operador]
-        )
-
-    raise ValueError(f"Nodo desconocido: {nodo}")
-
-
-def generar_tac_expresion(nodo):
-    lineas = []
-    contador = [0]
-
-    def temporal():
-        contador[0] += 1
-        return f"t{contador[0]}"
-
-    def recorrer(actual):
-        tipo = actual[0]
-
-        if tipo == "num":
-            return str(actual[1])
-
-        if tipo == "id":
-            return actual[1]
-
-        if tipo == "call":
-            argumentos = [
-                recorrer(x) for x in actual[2]
-            ]
-
-            for argumento in argumentos:
-                lineas.append(f"param {argumento}")
-
-            t = temporal()
-            lineas.append(
-                f"{t} = call {actual[1]}, {len(argumentos)}"
+    def recorrer(n):
+        if n.tipo == 'num':
+            return str(n.valor)
+        if n.tipo == 'var':
+            return n.valor
+        if n.tipo == 'uminus':
+            operando = recorrer(n.der)
+            temporal = nuevo_temporal()
+            instrucciones.append(
+                f"{temporal} = -{operando}"
             )
-            return t
-
-        if tipo == "op":
-            operador, izquierda, derecha = actual[1:]
-            izq = recorrer(izquierda)
-
-            if operador in ("not", "u-"):
-                t = temporal()
-                lineas.append(f"{t} = {operador} {izq}")
-                return t
-
-            der = recorrer(derecha)
-            t = temporal()
-            lineas.append(f"{t} = {izq} {operador} {der}")
-            return t
-
-        raise ValueError(f"Nodo desconocido: {actual}")
-
-    resultado = recorrer(nodo)
-    lineas.append(f"resultado = {resultado}")
-    return lineas
-
-
-def generar_cuadruplas(nodo):
-    lineas = []
-    contador = [0]
-
-    def temporal():
-        contador[0] += 1
-        return f"t{contador[0]}"
-
-    def recorrer(actual):
-        tipo = actual[0]
-
-        if tipo == "num":
-            return str(actual[1])
-
-        if tipo == "id":
-            return actual[1]
-
-        if tipo == "call":
-            argumentos = [
-                recorrer(x) for x in actual[2]
-            ]
-
-            for argumento in argumentos:
-                lineas.append(("PARAM", argumento, "-", "-"))
-
-            t = temporal()
-            lineas.append(
-                ("CALL", actual[1], str(len(argumentos)), t)
+            return temporal
+        if n.tipo == 'asignacion':
+            resultado = recorrer(n.der)
+            instrucciones.append(
+                f"{n.valor} = {resultado}"
             )
-            return t
+            return n.valor
 
-        if tipo == "op":
-            operador, izquierda, derecha = actual[1:]
-            izq = recorrer(izquierda)
+        izq = recorrer(n.izq)
+        der = recorrer(n.der)
+        temporal = nuevo_temporal()
+        instrucciones.append(
+            f"{temporal} = {izq} {n.tipo} {der}"
+        )
+        return temporal
 
-            if operador in ("not", "u-"):
-                t = temporal()
-                lineas.append((operador, izq, "-", t))
-                return t
-
-            der = recorrer(derecha)
-            t = temporal()
-            lineas.append((operador, izq, der, t))
-            return t
-
-        raise ValueError(f"Nodo desconocido: {actual}")
-
-    resultado = recorrer(nodo)
-    lineas.append(("=", resultado, "-", "resultado"))
-    return lineas
-
-
-def mostrar_resultados(nodo):
-    print("\nExpresion:")
-    print(a_texto(nodo))
-
-    print("\nNotacion polaca inversa:")
-    print(" ".join(polaca(nodo)))
-
-    print("\nCodigo de tres direcciones:")
-    for linea in generar_tac_expresion(nodo):
-        print(linea)
-
-    print("\nCuadruplas:")
-    print(f"{'Operador':<12}{'Arg1':<12}{'Arg2':<12}{'Resultado':<12}")
-
-    for op, arg1, arg2, res in generar_cuadruplas(nodo):
-        print(f"{op:<12}{arg1:<12}{arg2:<12}{res:<12}")
+    recorrer(nodo)
+    return instrucciones
 
 
 # ============================================================
-# 5. GENERADOR DINAMICO DE TAC PARA FACTORIAL
+# CUADRUPLETAS
+# ============================================================
+
+def generar_cuadrupletas(nodo):
+    cuadrupletas = []
+    contador = 0
+
+    def nuevo_temporal():
+        nonlocal contador
+        contador += 1
+        return f"T{contador}"
+
+    def recorrer(n):
+        if n.tipo == 'num':
+            return str(n.valor)
+        if n.tipo == 'var':
+            return n.valor
+        if n.tipo == 'uminus':
+            operando = recorrer(n.der)
+            temporal = nuevo_temporal()
+            cuadrupletas.append(
+                ('UMINUS', operando, '', temporal)
+            )
+            return temporal
+        if n.tipo == 'asignacion':
+            resultado = recorrer(n.der)
+            cuadrupletas.append(
+                ('=', resultado, '', n.valor)
+            )
+            return n.valor
+
+        izq = recorrer(n.izq)
+        der = recorrer(n.der)
+        temporal = nuevo_temporal()
+        cuadrupletas.append(
+            (n.tipo, izq, der, temporal)
+        )
+        return temporal
+
+    recorrer(nodo)
+    return cuadrupletas
+
+
+# ============================================================
+# GENERADOR DINAMICO DE TRES DIRECCIONES PARA factorial.py
 # ============================================================
 
 class GeneradorFactorial:
-    def __init__(self, programa):
-        self.programa = programa
-        self.lineas = []
-        self.contador = 0
-        self.etiqueta_contador = 0
+    def __init__(self):
+        self.instrucciones = []
+        self.contador_temporal = 0
+        self.contador_etiqueta = 0
 
-    def emitir(self, linea):
-        self.lineas.append(linea)
+    def nuevo_temporal(self):
+        self.contador_temporal += 1
+        return f"T{self.contador_temporal}"
 
-    def temporal(self):
-        self.contador += 1
-        return f"t{self.contador}"
+    def nueva_etiqueta(self):
+        self.contador_etiqueta += 1
+        return f"L{self.contador_etiqueta}"
 
-    def etiqueta(self):
-        self.etiqueta_contador += 1
-        return f"L{self.etiqueta_contador}"
+    def emitir(self, instruccion):
+        self.instrucciones.append(instruccion)
 
+   
     def expresion(self, nodo):
-        tipo = nodo[0]
-
-        if tipo == "num":
-            return str(nodo[1])
-
-        if tipo == "id":
-            return nodo[1]
-
-        if tipo == "call":
+        # Llamadas a funciones, incluida la recursion
+        if isinstance(nodo, NodoLlamada):
             argumentos = [
-                self.expresion(x) for x in nodo[2]
+                self.expresion(arg)
+                for arg in nodo.argumentos
             ]
 
             for argumento in argumentos:
                 self.emitir(f"param {argumento}")
 
-            t = self.temporal()
+            temporal = self.nuevo_temporal()
             self.emitir(
-                f"{t} = call {nodo[1]}, {len(argumentos)}"
+                f"{temporal} = call {nodo.nombre}, {len(argumentos)}"
             )
-            return t
+            return temporal
 
-        if tipo == "op":
-            operador, izquierda, derecha = nodo[1:]
-            izq = self.expresion(izquierda)
+        if nodo.tipo == 'num':
+            return str(nodo.valor)
 
-            if operador in ("not", "u-"):
-                t = self.temporal()
-                self.emitir(f"{t} = {operador} {izq}")
-                return t
+        if nodo.tipo == 'var':
+            return nodo.valor
 
-            der = self.expresion(derecha)
-            t = self.temporal()
-            self.emitir(f"{t} = {izq} {operador} {der}")
-            return t
+        if nodo.tipo == 'uminus':
+            operando = self.expresion(nodo.der)
+            temporal = self.nuevo_temporal()
+            self.emitir(f"{temporal} = -{operando}")
+            return temporal
 
-        raise ValueError(f"Expresion no soportada: {nodo}")
+        if nodo.tipo == 'asignacion':
+            valor = self.expresion(nodo.der)
+            self.emitir(f"{nodo.valor} = {valor}")
+            return nodo.valor
 
-    def condicion(self, nodo, verdadera, falsa):
-        # Genera saltos para las condiciones logicas sin
-        # evaluar innecesariamente ambos lados de OR/AND.
-        if nodo[0] == "op" and nodo[1] == "or":
-            siguiente = self.etiqueta()
-            self.condicion(nodo[2], verdadera, siguiente)
-            self.emitir(f"{siguiente}:")
-            self.condicion(nodo[3], verdadera, falsa)
-            return
+        if nodo.tipo in ('+', '-', '*', '/', '^', '==', '>', 'or'):
+            izq = self.expresion(nodo.izq)
+            der = self.expresion(nodo.der)
 
-        if nodo[0] == "op" and nodo[1] == "and":
-            siguiente = self.etiqueta()
-            self.condicion(nodo[2], siguiente, falsa)
-            self.emitir(f"{siguiente}:")
-            self.condicion(nodo[3], verdadera, falsa)
-            return
-
-        if nodo[0] == "op" and nodo[1] == "not":
-            self.condicion(nodo[2], falsa, verdadera)
-            return
-
-        if nodo[0] == "op" and nodo[1] in (
-            "==", "!=", ">", "<", ">=", "<="
-        ):
-            operador, izquierda, derecha = nodo[1:]
-            izq = self.expresion(izquierda)
-            der = self.expresion(derecha)
+            temporal = self.nuevo_temporal()
             self.emitir(
-                f"if {izq} {operador} {der} goto {verdadera}"
+                f"{temporal} = {izq} {nodo.tipo} {der}"
             )
-            self.emitir(f"goto {falsa}")
-            return
+            return temporal
 
-        valor = self.expresion(nodo)
-        self.emitir(f"if {valor} goto {verdadera}")
-        self.emitir(f"goto {falsa}")
-
-    def generar(self):
-        p = self.programa
-
-        funcion = p["funcion"]
-        parametro = p["parametro"]
-        nombre_resultado_if, valor_if = p["asignacion_if"]
-        nombre_resultado_elif, valor_elif = p["asignacion_elif"]
-
-        if nombre_resultado_if != nombre_resultado_elif:
-            raise ValueError(
-                "Las dos ramas deben asignar a la misma variable."
-            )
-
-        variable_resultado = nombre_resultado_if
-
-        etiqueta_if = self.etiqueta()
-        etiqueta_elif = self.etiqueta()
-        etiqueta_fin = self.etiqueta()
-
-        self.emitir(f"func {funcion}({parametro}):")
-
-        # IF: n == 0 or n == 1
-        self.condicion(
-            p["condicion_if"],
-            etiqueta_if,
-            etiqueta_elif
+        raise ValueError(
+            f"Expresión no soportada: {type(nodo).__name__}"
         )
 
-        self.emitir(f"{etiqueta_if}:")
-        valor = self.expresion(valor_if)
-        self.emitir(f"{variable_resultado} = {valor}")
-        self.emitir(f"goto {etiqueta_fin}")
 
-        # ELIF: n > 1
-        self.emitir(f"{etiqueta_elif}:")
-        etiqueta_cuerpo_elif = self.etiqueta()
-        self.condicion(
-            p["condicion_elif"],
-            etiqueta_cuerpo_elif,
-            etiqueta_fin
-        )
+    def sentencias(self, nodos):
+        for nodo in nodos:
 
-        self.emitir(f"{etiqueta_cuerpo_elif}:")
-        valor = self.expresion(valor_elif)
-        self.emitir(f"{variable_resultado} = {valor}")
-        self.emitir(f"goto {etiqueta_fin}")
+            if isinstance(nodo, NodoExpresion):
+                self.expresion(nodo)
 
-        self.emitir(f"{etiqueta_fin}:")
-        retorno = self.expresion(p["retorno"])
-        self.emitir(f"return {retorno}")
-        self.emitir("end func")
+            elif isinstance(nodo, NodoReturn):
+                valor = self.expresion(nodo.expresion)
+                self.emitir(f"return {valor}")
 
-        # Llamada principal y salida
-        self.emitir("")
-        argumento = p["argumento_final"]
-        self.emitir(f"param {argumento}")
+            elif isinstance(nodo, NodoPrint):
+                valor = self.expresion(nodo.expresion)
+                self.emitir(f"print {valor}")
 
-        llamada = self.temporal()
-        self.emitir(
-            f"{llamada} = call {p['funcion_llamada']}, 1"
-        )
+            elif isinstance(nodo, NodoIf):
+                condicion = self.expresion(nodo.condicion)
 
-        self.emitir(f"{p['variable_final']} = {llamada}")
-        self.emitir(f"print {p['variable_print']}")
+                etiqueta_siguiente = self.nueva_etiqueta()
+                etiqueta_fin = self.nueva_etiqueta()
 
-        return "\n".join(self.lineas)
+                self.emitir(
+                    f"ifFalse {condicion} goto {etiqueta_siguiente}"
+                )
+
+                self.sentencias(nodo.cuerpo)
+                self.emitir(f"goto {etiqueta_fin}")
+                self.emitir(f"{etiqueta_siguiente}:")
+
+                if nodo.alternativo is not None:
+                    if isinstance(nodo.alternativo, NodoIf):
+                        self.sentencias([nodo.alternativo])
+                    else:
+                        self.sentencias(nodo.alternativo)
+
+                self.emitir(f"{etiqueta_fin}:")
+
+            elif isinstance(nodo, NodoFuncion):
+                self.emitir(f"function {nodo.nombre}:")
+
+                self.sentencias(nodo.cuerpo)
+
+                self.emitir(f"end function {nodo.nombre}")
+
+            else:
+                raise ValueError(
+                    f"Instrucción no soportada: {type(nodo).__name__}"
+                )
+
+    def generar(self, arbol):
+        self.sentencias(arbol.sentencias)
+        return self.instrucciones
 
 
 # ============================================================
-# 6. ARCHIVO DE SALIDA
+# EXPORTAR ARCHIVO TXT
 # ============================================================
 
-def siguiente_nombre():
-    numero = 1
+def exportar_codigo(codigo):
+    nombre = "factorial_py.txt"
+    contador = 1
 
-    while os.path.exists(f"factorial-py({numero}).txt"):
-        numero += 1
+    while os.path.exists(nombre):
+        nombre = f"factorial_py({contador}).txt"
+        contador += 1
 
-    return f"factorial-py({numero}).txt"
+    with open(nombre, "w", encoding="utf-8") as archivo:
+        archivo.write("\n".join(codigo) + "\n")
+
+    print(f"\nArchivo exportado correctamente: {nombre}")
 
 
-def opcion_factorial():
-    archivo_entrada = "C:\\Users\\Juan2\\OneDrive\\Escritorio\\ProyectoJVCUP\\factorial.py"
+# ============================================================
+# PROCESAR ARCHIVO factorial.py
+# ============================================================
 
-    if not os.path.isfile(archivo_entrada):
-        print(f"No se encontro {archivo_entrada}.")
-        print("Coloca el archivo junto al programa principal.")
+def procesar_archivo_factorial():
+    nombre_archivo = "factorial.py"
+
+    if not os.path.isfile(nombre_archivo):
+        print(f"No se encontró el archivo: {nombre_archivo}")
+        print("Coloca factorial.py en el directorio de ejecución.")
         return
 
     try:
-        with open(archivo_entrada, "r", encoding="utf-8") as archivo:
-            codigo = archivo.read()
+        with open(nombre_archivo, "r", encoding="utf-8") as archivo:
+            fuente = archivo.read()
 
-        programa = analizar_factorial(codigo)
-        generador = GeneradorFactorial(programa)
-        tac = generador.generar()
+        print("\nANALISIS LEXICO")
 
-        salida = siguiente_nombre()
-        
-        try:
-            with open(salida, "w", encoding="utf-8") as archivo:
-                        archivo.write("CODIGO FUENTE:\n")
-                        archivo.write(codigo)
-                        archivo.write("\n\nCODIGO DE TRES DIRECCIONES:\n")
-                        archivo.write(tac)
-                        archivo.write("\n")
-        except IOError as e:
-            print(f"\nError al escribir el archivo de salida: {e}")
+        lexer_archivo = LexerIndentacion(lexer)
+        lexer_archivo.input(fuente)
+
+        # Mostrar los tokens sin consumir el analizador
+        # que se utilizará posteriormente.
+        while True:
+            token = lexer_archivo.token()
+
+            if token is None:
+                break
+
+            print(
+                f"{token.type:<12} "
+                f"{str(token.value):<20} "
+                f"línea {token.lineno}"
+            )
+
+        # Analisis sintactico con PLY
+        lexer_archivo.input(fuente)
+        resultado = parser_factorial.parse(
+            lexer=lexer_archivo
+        )
+
+        if resultado is None:
+            print("\nNo se pudo analizar factorial.py.")
             return
 
-        print("\nAnalisis PLY completado.")
-        print("\nCodigo de tres direcciones generado:\n")
-        print(tac)
-        print(f"\nResultado guardado en: {salida}")
+        # Generacion dinamica de tres direcciones
+        generador = GeneradorFactorial()
+        codigo = generador.generar(resultado)
 
-    except (SyntaxError, ValueError, TypeError) as error:
-        print(f"\nError durante el analisis: {error}")
+        print("\nTRES DIRECCIONES")
+        for linea in codigo:
+            print(linea)
+
+        exportar_codigo(codigo)
+
+    except (SyntaxError, ValueError, OSError) as error:
+        print(f"\nError al procesar el archivo: {error}")
 
 
-# ============================================================
-# 7. MENU PRINCIPAL
-# ============================================================
+def procesar(entrada):
+    print("\n" + "=" * 60)
+    print(f"EXPRESIÓN: {entrada}")
+    print("=" * 60)
+
+    resultado = parser.parse(
+        entrada,
+        lexer=lexer
+    )
+
+    if resultado is None:
+        print("\nNo se pudo procesar la expresión.")
+        return
+
+    polaca = generar_polaca_inversa(resultado)
+    print("\nPOLACA INVERSA")
+    print(" ".join(polaca))
+
+    tres_direcciones = generar_tres_direcciones(resultado)
+    print("\nTRES DIRECCIONES")
+    for linea in tres_direcciones:
+        print(linea)
+
+    cuadrupletas = generar_cuadrupletas(resultado)
+    print("\nCUADRUPLETAS")
+    for cuadrupla in cuadrupletas:
+        print(cuadrupla)
+
+
+def mostrar_menu():
+    print("\n" + "=" * 60)
+    print("1. Probar ejemplo")
+    print("2. Ingresar expresión")
+    print("3. Procesar archivo factorial.py")
+    print("4. Salir")
+
 
 def main():
     while True:
-        print("\n======================================")
-        print(" PRACTICA DE COMPILADORES CON PLY")
-        print("======================================")
-        print("1. Analizar expresion de ejemplo")
-        print("2. Analizar expresion personalizada")
-        print("3. Analizar factorial.py")
-        print("4. Salir")
+        mostrar_menu()
 
-        opcion = input("\nSelecciona una opcion: ").strip()
+        opcion = input("\nOpción: ").strip()
 
-        try:
-            if opcion == "1":
-                expresion = "a + b * c - 10"
-                print(f"\nExpresion: {expresion}")
-                mostrar_resultados(analizar_expresion(expresion))
+        if opcion == '1':
+            procesar("a+b*c+d")
 
-            elif opcion == "2":
-                expresion = input("\nEscribe una expresion: ")
-                mostrar_resultados(analizar_expresion(expresion))
+        elif opcion == '2':
+            entrada = input(
+                "\nEscribe la expresión: "
+            ).strip()
 
-            elif opcion == "3":
-                opcion_factorial()
-
-            elif opcion == "4":
-                print("Programa finalizado.")
-                break
-
+            if entrada:
+                procesar(entrada)
             else:
-                print("Opcion no valida.")
+                print("No ingresaste una expresión.")
 
-        except (SyntaxError, ValueError, TypeError) as error:
-            print(f"\nError: {error}")
+        elif opcion == '3':
+            procesar_archivo_factorial()
+
+        elif opcion == '4':
+            print("Programa terminado.")
+            break
+
+        else:
+            print("Opción inválida.")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
