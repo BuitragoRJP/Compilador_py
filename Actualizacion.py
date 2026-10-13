@@ -1,8 +1,6 @@
-
 import ply.lex as lex
 import ply.yacc as yacc
 import os
-
 
 # ============================================================
 # ANALIZADOR LÉXICO
@@ -18,7 +16,6 @@ tokens = (
     'IGUAL',
     'PARIZQ',
     'PARDER',
-
     # Tokens agregados para factorial.py
     'DEF',
     'IF',
@@ -33,7 +30,6 @@ tokens = (
     'INDENT',
     'DEDENT',
 )
-
 reservadas = {
     'def': 'DEF',
     'if': 'IF',
@@ -41,7 +37,6 @@ reservadas = {
     'return': 'RETURN',
     'or': 'OR',
 }
-
 t_MAS = r'\+'
 t_MENOS = r'-'
 t_POR = r'\*'
@@ -54,39 +49,31 @@ t_PARIZQ = r'\('
 t_PARDER = r'\)'
 t_DOS_PUNTOS = r':'
 t_COMA = r','
-
 t_ignore = ' \t'
-
 
 def t_ENTERO(t):
     r'\d+'
     t.value = int(t.value)
     return t
 
-
 def t_VARIABLE(t):
     r'[A-Za-z_][A-Za-z_0-9]*'
     t.type = reservadas.get(t.value, 'VARIABLE')
     return t
 
-
 def t_newline(t):
     r'\n+'
     t.lexer.lineno += len(t.value)
-
 
 def t_error(t):
     print(f"Carácter ilegal: '{t.value[0]}'")
     t.lexer.skip(1)
 
-
 lexer = lex.lex()
-
 
 # ============================================================
 # INDENTACIÓN
 # ============================================================
-
 class LexerIndentacion:
     def __init__(self, lexer_base):
         self.lexer_base = lexer_base
