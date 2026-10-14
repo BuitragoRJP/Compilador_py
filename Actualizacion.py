@@ -670,10 +670,9 @@ class GeneradorFactorial:
 # EXPORTAR ARCHIVO TXT
 # ============================================================
 
-def exportar_codigo(codigo):
-    nombre = "factorial_py.txt"
+def exportar_codigo(codigo, nombre):
     contador = 1
-
+    nombre = f"{nombre}.txt"
     while os.path.exists(nombre):
         nombre = f"factorial_py({contador}).txt"
         contador += 1
@@ -737,7 +736,11 @@ def procesar_archivo_factorial():
         for linea in codigo:
             print(linea)
 
-        exportar_codigo(codigo)
+        if "S" == input("\n¿Deseas exportar el código a un archivo? (S/N): ").strip().upper():
+            nombre_archivo = input("Ingresa el nombre del archivo (sin extensión): ").strip()
+            if not nombre_archivo:
+                nombre_archivo = "factorial_py"
+            exportar_codigo(codigo, nombre_archivo)
 
     except (SyntaxError, ValueError, OSError) as error:
         print(f"\nError al procesar el archivo: {error}")
