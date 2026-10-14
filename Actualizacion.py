@@ -689,7 +689,7 @@ def exportar_codigo(codigo):
 # ============================================================
 
 def procesar_archivo_factorial():
-    nombre_archivo = "factorial.py"
+    nombre_archivo = "factorial.code"
 
     if not os.path.isfile(nombre_archivo):
         print(f"No se encontró el archivo: {nombre_archivo}")
