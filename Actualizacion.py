@@ -774,6 +774,13 @@ def procesar(entrada):
     for cuadrupla in cuadrupletas:
         print(cuadrupla)
 
+    code = f"Polaca Inversa: {' '.join(polaca)}\n Tres Direcciones:\n" + "\n".join(tres_direcciones) + "\nCuadrupletas:\n" + "\n".join(str(c) for c in cuadrupletas)
+    if "S" == input("\n¿Deseas exportar el código a un archivo? (S/N): ").strip().upper():
+        nombre_archivo = input("Ingresa el nombre del archivo (sin extensión): ").strip()
+        if not nombre_archivo:
+            nombre_archivo = "codigo_generado"
+        exportar_codigo(code.splitlines(), nombre_archivo)
+
 
 def mostrar_menu():
     print("\n" + "=" * 60)
